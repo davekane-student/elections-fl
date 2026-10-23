@@ -1,5 +1,5 @@
 ---
-title: "2026 Florida Republican Primary for Governor"
+title: "2026 Florida Democratic Primary for U.S. Senate"
 format: html
 execute:
   echo: false
@@ -10,14 +10,20 @@ execute:
 ```{r}
 library(tidyverse)
 library(scales)
+library(sf)
+library(tigris)
+library(plotly)
+
+options(tigris_use_cache = TRUE)
 
 # Extract the 67 county precinct files to a temporary directory and read them in
 files <- unzip("2026-pri-outputofficial.zip", exdir = tempdir())
 
-gov_rep <- read_tsv(
+sen_dem_county <- read_tsv(
   files,
   col_names = FALSE,
   col_select = c(
+    county = X2,
     office = X12,
     candidate = X15,
     party = X16,
@@ -25,22 +31,36 @@ gov_rep <- read_tsv(
   ),
   show_col_types = FALSE
 ) |>
-  filter(office == "Governor", party == "REP") |>
-  summarize(total_votes = sum(votes, na.rm = TRUE), .by = candidate)
-```
+  filter(office == "United States Senator", party == "DEM") |>
+  summarize(votes = sum(votes, na.rm = TRUE), .by = c(county, candidate)) |>
+  pivot_wider(names_from = candidate, values_from = votes, values_fill = 0) |>
+  mutate(
+    total_votes = `Alex Vindman` + `Angie Nixon`,
+    vindman_pct = `Alex Vindman` / total_votes,
+    nixon_pct = `Angie Nixon` / total_votes,
+    county_key = str_to_lower(county),
+    tooltip = paste0(
+      "<b>", county, " County</b><br>",
+      "Alex Vindman: ", comma(`Alex Vindman`), " (", percent(vindman_pct, accuracy = 0.1), ")<br>",
+      "Angie Nixon: ", comma(`Angie Nixon`), " (", percent(nixon_pct, accuracy = 0.1), ")"
+    )
+  )
 
-```{r}
-gov_rep |>
-  mutate(candidate = fct_reorder(candidate, total_votes)) |>
-  ggplot(aes(x = total_votes, y = candidate)) +
-  geom_col(fill = "firebrick") +
-  scale_x_continuous(labels = label_comma()) +
-  labs(
-    title = "2026 Florida Republican Primary for Governor",
-    subtitle = "Official statewide vote totals by candidate",
-    x = "Total Votes",
-    y = NULL,
-    caption = "Source: Florida Department of State (2026 Primary Election Official Results)"
+fl_counties <- counties(state = "FL", cb = TRUE, progress_bar = FALSE) |>
+  mutate(county_key = str_to_lower(NAME)) |>
+  left_join(sen_dem_county, by = "county_key")
+
+p <- ggplot(fl_counties, aes(fill = vindman_pct, text = tooltip)) +
+  geom_sf(color = "white", linewidth = 0.2) +
+  scale_fill_viridis_c(
+    labels = label_percent(),
+    name = "Vindman\nVote Share"
   ) +
-  theme_minimal()
+  labs(
+    title = "2026 Florida Democratic Primary for U.S. Senate",
+    subtitle = "Alex Vindman share of the two-way vote (vs. Angie Nixon) by county"
+  ) +
+  theme_void()
+
+ggplotly(p, tooltip = "text")
 ```
